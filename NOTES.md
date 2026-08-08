@@ -18,7 +18,10 @@ Logged as I build, one line per meaningful decision. Feeds the README tradeoffs 
 - Fetch `.md` variant of each page URL (docs serve clean markdown; no HTML scraping).
 
 ## Stage 2 — Index
-(tbd)
+- **Chunk size deviation (deliberate)**: brief says ~300-500 tokens, but all-MiniLM-L6-v2 hard-caps at 256 word-pieces and *silently truncates* beyond. Targeting 300-500 truncated 23% of chunks (verified: 64/275 over 256, one at 6050). Sized to model window instead: TARGET=210 tokens, OVERLAP=40, packed on paragraph boundaries. Correctness > literal number (brief's own "no silent regressions" principle).
+- Robust decomposition for oversized blocks (tables/long lists with no sentence boundaries): paragraph → newlines → sentences → hard token-window. Guarantees 0 chunks truncated (verified: 375 chunks, max 250 tokens, 0 over 256).
+- Embeddings L2-normalized → cosine == dot product. Persisted to cache/index.pkl with a fingerprint (model + params + kb content hash) so re-runs skip re-embed; stale KB auto-rebuilds.
+- Sanity check passed: "Zendesk import" → Knowledge integration chunks (0.66-0.69); "create an article" → Article creation chunks (0.76-0.81). Good matches sit well above the 0.35 floor.
 
 ## Stage 3-4 — Retrieval + Generation + Confidence Gate
 (tbd)

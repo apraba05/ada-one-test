@@ -68,6 +68,7 @@ class AskResponse(BaseModel):
     sources: list[Source]
     retrieval_score: float
     judge_score: float | None
+    answers_question: bool | None
     judge_reasoning: str
     thresholds: dict[str, float]
 

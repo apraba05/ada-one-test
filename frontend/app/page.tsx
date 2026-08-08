@@ -11,6 +11,7 @@ type AskResponse = {
   sources: Source[];
   retrieval_score: number;
   judge_score: number | null;
+  answers_question: boolean | null;
   judge_reasoning: string;
   thresholds: { retrieval: number; judge: number };
 };
@@ -260,6 +261,14 @@ export default function Home() {
               <div className="mt-4 space-y-4">
                 <Meter label="Retrieval similarity (max cosine)" value={result.retrieval_score} threshold={result.thresholds.retrieval} />
                 <Meter label="LLM judge groundedness" value={result.judge_score} threshold={result.thresholds.judge} />
+                {result.answers_question !== null && (
+                  <div className="flex items-baseline justify-between text-[13px]">
+                    <span className="text-pewter">Answer addresses the question</span>
+                    <span className={result.answers_question ? "font-medium text-green" : "font-medium text-pewter"}>
+                      {result.answers_question ? "✓ yes" : "✗ no — not covered by sources"}
+                    </span>
+                  </div>
+                )}
                 <div className="rounded-xl bg-off-white p-3">
                   <p className="mb-1 text-[12px] uppercase tracking-wide text-pewter">Judge reasoning</p>
                   <p className="text-[14px] leading-[1.5] text-charcoal/80">{result.judge_reasoning}</p>

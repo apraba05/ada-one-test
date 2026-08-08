@@ -49,8 +49,12 @@ what is not covered."""
 class JudgeResult(BaseModel):
     """Structured output for the groundedness judge."""
     judge_score: float = Field(description="0.0-1.0: how well the specific answer is supported by the SOURCES")
-    supported: bool = Field(description="True only if every substantive claim is directly grounded in the SOURCES")
-    reasoning: str = Field(description="One or two sentences explaining the score")
+    answers_question: bool = Field(
+        description="True only if the ANSWER actually provides the information the QUESTION asks for, "
+        "drawn from the SOURCES. False if the answer says the information is not in the sources, "
+        "punts, or only gives adjacent/general info without answering the question."
+    )
+    reasoning: str = Field(description="One or two sentences explaining the score and the answers_question decision")
 
 
 @dataclass
@@ -103,6 +107,11 @@ def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
         "contradicts them, or the SOURCES are genuinely off-topic for the QUESTION. An answer "
         "that correctly says the information isn't available scores high (it makes no unsupported "
         "claim). Do not nitpick minor omissions or formatting differences.\n\n"
+        "SEPARATELY, set answers_question: true ONLY if the ANSWER actually provides the specific "
+        "information the QUESTION asks for, using the SOURCES. Set it FALSE if the answer says the "
+        "information is not in the sources, declines, punts to 'contact the Ada team', or only gives "
+        "adjacent/general information without answering the question. (So a grounded 'there is no "
+        "information about X in the sources' has a HIGH judge_score but answers_question=false.)\n\n"
         f"QUESTION: {query}\n\n"
         f"ANSWER: {answer}\n\n"
         f"SOURCES:\n\n{_format_sources(chunks)}"
@@ -131,19 +140,22 @@ def answer_query(query: str, index: Index, k: int = TOP_K) -> dict:
             "sources": source_list,
             "retrieval_score": retrieval_score,
             "judge_score": None,
+            "answers_question": None,
             "judge_reasoning": "Retrieval score below threshold — no sufficiently relevant documents.",
         }
 
     answer = generate_answer(query, chunks)
     judge = judge_answer(query, answer, chunks)
 
-    # Gate stage 2: LLM judge. Either check failing -> hard refuse.
-    refused = judge.judge_score < JUDGE_THRESHOLD
+    # Gate stage 2: LLM judge. Refuse if the answer is weakly grounded OR it doesn't actually
+    # answer the question (a grounded "not covered in the sources" is a refusal, not an answer).
+    refused = judge.judge_score < JUDGE_THRESHOLD or not judge.answers_question
     return {
         "answer": REFUSAL_TEXT if refused else answer,
         "refused": refused,
         "sources": source_list,
         "retrieval_score": retrieval_score,
         "judge_score": judge.judge_score,
+        "answers_question": judge.answers_question,
         "judge_reasoning": judge.reasoning,
     }

@@ -47,4 +47,27 @@
 - Each stage tested before next; commit per stage.
 - Regression risk: cache invalidation on chunking change; threshold tuning in Stage 8.
 
-## Review (filled at end)
+## Review
+
+### What changed / was built
+- Stages 1-8 all complete. 15 Ada docs ingested → local MiniLM index (375 chunks, 0 truncated)
+  → cosine top-k → grounded generation → two-stage confidence gate → FastAPI → Next.js UI.
+- Provider abstraction (llm.py): runs keyless on local Ollama, or Claude if a key is set.
+- Confidence gate: retrieval ≥ 0.35 AND (judge ≥ 0.60 AND answers_question), else hard refuse.
+
+### Validation performed
+- Stage 2: retrieval sanity queries return sensible chunks above threshold.
+- Stage 5: CLI end-to-end (answerable → grounded+cited; out-of-scope → refuse).
+- Stage 6: API error paths (empty/malformed → 422) + happy path verified via curl.
+- Stage 7: answered / refused / trace states verified in a real browser (Playwright CLI).
+- Stage 8: 8-question eval matrix, all three buckets classify correctly.
+
+### Key decisions / risks (see NOTES.md for full log)
+- Chunk size sized to the embedding model's 256-token window (not the brief's 300-500) to
+  avoid silent truncation — verified 0 chunks truncated.
+- answers_question added to the judge to catch grounded-but-non-answers (Bucket B).
+- RISK: local 8B judge is weaker than Claude at grounding — run with a key for production.
+
+### Follow-ups
+- Hybrid search, reranking, persistent vector DB, retry handling, multi-turn (see README).
+- Roobert font is substituted (proprietary); swap in the real font file if licensed.

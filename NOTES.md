@@ -39,3 +39,10 @@ Logged as I build, one line per meaningful decision. Feeds the README tradeoffs 
 - Refusal/badge visual treatment CONFIRMED by user: answered = white-fr card + green left-border; refused = graphite/pewter card, no green, "not enough information" heading; confidence trace collapsible below both.
 
 - Roobert is proprietary (no font file available) → substituting a free geometric grotesque via `next/font`; sanctioned by ADA-CX.md §8.2 ("General Sans / Söhne / Aeonik"). FLAGGED inference.
+
+## Stage 8 — Eval set (8 CEO-framed questions, 3 buckets)
+- Bucket A (answerable): Zendesk connect, create article, website import, best practices → all ANSWERED (judge 0.8-1.0). ✓
+- Bucket B (adjacent/not covered): "How much does Ada cost?", "Deploy on WhatsApp?" → all REFUSED. ✓
+- Bucket C (off-topic/nonsense): "Capital of France?", prompt-injection "ignore instructions…" → all REFUSED at retrieval gate. ✓
+- **Bug found & fixed (the Bucket-B case Stage 8 exists to catch):** initially B was ANSWERED. Root cause: I conflated "grounded" with "actually answers". The model honestly said "there is no information about X in the sources" (correctly grounded, judge=1.0) but it was shown as a green "Grounded answer". Fix: judge now ALSO returns `answers_question` (bool); gate refuses when `judge_score < 0.60 OR not answers_question`. Not a threshold hack — a grounded non-answer is a refusal by definition here. Surfaced in the UI trace as "Answer addresses the question ✓/✗".
+- Thresholds held at retrieval>=0.35 / judge>=0.60 across all 8 — no retuning needed for the local judge after the answers_question fix.

@@ -46,6 +46,11 @@ Two independent checks, **both must pass** or the tool hard-refuses (no hedged/p
 Both thresholds are exposed in the API response (`thresholds`) and rendered in the UI trace
 panel so they're visible and tunable, not buried.
 
+Because the gate is the core, it has an executable regression check: `backend/eval.py` runs
+8 labeled questions (answerable / adjacent-but-not-covered / off-topic) through the full
+pipeline and **exits non-zero if any of them lands in the wrong bucket**. Run it before and
+after any change to retrieval, prompts, or thresholds — see `backend/eval_set.md`.
+
 ### LLM provider
 
 `backend/llm.py` abstracts the two LLM operations (generation, judge) behind a provider
@@ -74,6 +79,7 @@ python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python ingest.py          # Stage 1 — fetch docs to kb/ (one-time)
 .venv/bin/python index.py           # Stage 2 — build the embedding index (cached)
 .venv/bin/python cli.py "Can I connect my Zendesk help center?"   # Stage 5 — CLI
+.venv/bin/python eval.py            # eval harness — 8 labeled Qs, non-zero exit on regression
 .venv/bin/uvicorn app:app --port 8000                             # Stage 6 — API
 
 # Frontend (separate terminal)
@@ -92,14 +98,16 @@ Deliberately **not** built (and not gold-plated around):
 - No hybrid search / reranking — pure vector cosine similarity.
 - No multi-turn conversation — single question in, single answer out.
 - No retry/backoff on LLM calls.
-- No automated eval harness — manual test set (`backend/eval_set.md`).
+- No CI — `backend/eval.py` is run by hand, and it asserts bucket classification
+  (answer vs. refuse) only, not answer-quality scoring.
 - No auth, no multi-user, no deployment/hosting.
 - No responsive / mobile design.
 
 ## What I'd add next
 
 - **Hybrid search** — add BM25 keyword scoring alongside vectors; would catch exact-term
-  queries (product names, API fields) where pure embeddings underperform.
+  queries (product names, API fields) where pure embeddings underperform. `eval.py` is the
+  guardrail for this: it changes retrieval, which is what the first gate keys off.
 - **Reranking** — a cross-encoder reranker over the top-k to sharpen chunk ordering before
   generation, improving both answer quality and the retrieval-gate signal.
 - **Persistent vector DB** — move vectors to e.g. pgvector/Qdrant so the index survives

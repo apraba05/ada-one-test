@@ -27,9 +27,11 @@ def _print_result(query: str, r: dict) -> None:
             print(f"  - {s['title']}  ({s['url']})")
         print()
     js = r["judge_score"]
+    aq = r["answers_question"]
     print(
         f"trace: retrieval_score={r['retrieval_score']:.3f} (>= {RETRIEVAL_THRESHOLD}) | "
-        f"judge_score={'n/a' if js is None else f'{js:.2f}'} (>= {JUDGE_THRESHOLD})"
+        f"judge_score={'n/a' if js is None else f'{js:.2f}'} (>= {JUDGE_THRESHOLD}) | "
+        f"answers_question={'n/a' if aq is None else ('yes' if aq else 'no')}"
     )
     print(f"judge_reasoning: {r['judge_reasoning']}")
     print("=" * 72 + "\n")

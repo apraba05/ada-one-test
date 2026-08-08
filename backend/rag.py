@@ -3,15 +3,17 @@ Stages 3 + 4 — Retrieval, grounded generation, and the two-stage confidence ga
 
 Pipeline for a query:
   1. Embed query, cosine top-k (k=4) over the local index.
-  2. Generate an answer with Claude, grounded ONLY in the retrieved chunks.
+  2. Generate an answer (via the configured LLM provider, see llm.py), grounded
+     ONLY in the retrieved chunks.
   3. Gate:
        (a) retrieval check — max cosine similarity must clear RETRIEVAL_THRESHOLD
-       (b) LLM judge — a SEPARATE Claude call scores how well the *specific* answer
-           is supported by the retrieved context; must clear JUDGE_THRESHOLD
+       (b) LLM judge — a SEPARATE LLM call scores how well the *specific* answer
+           is supported by the retrieved context (must clear JUDGE_THRESHOLD) and
+           whether it actually answers the question (answers_question)
      If EITHER check fails -> hard refuse. No hedged/partial answers.
 
 Returns the full trace: {answer, refused, sources, retrieval_score, judge_score,
-judge_reasoning}.
+answers_question, judge_reasoning}.
 """
 from __future__ import annotations
 

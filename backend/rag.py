@@ -62,16 +62,27 @@ class Source:
 
 def _format_sources(chunks: list[dict]) -> str:
     blocks = []
-    for i, c in enumerate(chunks, 1):
-        blocks.append(f"[Source {i}] Title: {c['title']}\n{c['text']}")
-    return "\n\n---\n\n".join(blocks)
+    for c in chunks:
+        blocks.append(f"### {c['title']}\n{c['text']}")
+    return "\n\n".join(blocks)
+
+
+def _source_titles(chunks: list[dict]) -> str:
+    seen = []
+    for c in chunks:
+        if c["title"] not in seen:
+            seen.append(c["title"])
+    return ", ".join(f"[{t}]" for t in seen)
 
 
 def generate_answer(query: str, chunks: list[dict]) -> str:
     user_msg = (
-        f"SOURCES:\n\n{_format_sources(chunks)}\n\n"
+        f"SOURCES (each begins with a '### Title' header):\n\n{_format_sources(chunks)}\n\n"
         f"QUESTION: {query}\n\n"
-        "Answer using only the SOURCES above, with inline [Title] citations."
+        "Write a clean, direct answer for the CEO using only the SOURCES above. Cite the "
+        f"relevant source title inline in square brackets, e.g. {_source_titles(chunks)}. "
+        "Do NOT reproduce the '###' headers or the raw source text, and do NOT repeat these "
+        "instructions — write the answer in your own words with inline [Title] citations."
     )
     return get_llm().generate(GEN_SYSTEM, user_msg, max_tokens=1024)
 
@@ -79,13 +90,19 @@ def generate_answer(query: str, chunks: list[dict]) -> str:
 def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
     """SEPARATE LLM call: is THIS answer actually supported by THESE chunks?"""
     user_msg = (
-        "You are a strict grounding auditor. Given a QUESTION, a candidate ANSWER, and the "
-        "SOURCES that answer was supposed to be drawn from, judge whether the specific claims "
-        "in the ANSWER are directly supported by the SOURCES.\n\n"
-        "Score 1.0 only if every substantive claim is explicitly supported. Score low if the "
-        "answer adds facts not in the SOURCES, generalizes beyond them, or the SOURCES are "
-        "off-topic for the QUESTION. An answer that correctly says the information isn't "
-        "available should score high (it is grounded — it makes no unsupported claim).\n\n"
+        "You are a grounding auditor. Given a QUESTION, a candidate ANSWER, and the SOURCES "
+        "that answer was drawn from, judge whether the substantive claims in the ANSWER are "
+        "supported by the SOURCES.\n\n"
+        "Judge SUBSTANCE, not wording. Reasonable paraphrase, summarization, reformatting into "
+        "steps, and synonyms of the source content ARE grounded — do not penalize the answer "
+        "for using different words than the sources (e.g. 'articles' vs 'website content', "
+        "'connect' vs 'add source'). Score based on whether a reader could verify each claim "
+        "against the SOURCES.\n\n"
+        "Score 0.8-1.0 when the claims are supported by the sources (even if paraphrased). "
+        "Score below 0.6 only when the answer introduces specific facts absent from the SOURCES, "
+        "contradicts them, or the SOURCES are genuinely off-topic for the QUESTION. An answer "
+        "that correctly says the information isn't available scores high (it makes no unsupported "
+        "claim). Do not nitpick minor omissions or formatting differences.\n\n"
         f"QUESTION: {query}\n\n"
         f"ANSWER: {answer}\n\n"
         f"SOURCES:\n\n{_format_sources(chunks)}"

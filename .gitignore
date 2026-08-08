@@ -1,0 +1,17 @@
+# Python
+backend/.venv/
+__pycache__/
+*.pyc
+backend/.env
+.env
+
+# Index cache (regenerable from kb/ + embeddings)
+backend/cache/*.pkl
+backend/cache/*.npz
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+.DS_Store

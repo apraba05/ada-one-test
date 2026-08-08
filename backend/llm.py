@@ -1,0 +1,123 @@
+"""
+LLM provider abstraction.
+
+The brief specifies Claude (Anthropic API) for both generation and the judge.
+To allow a keyless local demo, this module abstracts the two LLM operations
+behind a provider interface with two backends:
+
+  - "anthropic": Claude via the official SDK (the brief's default).
+  - "ollama":    a local model via the Ollama HTTP API (no API key required).
+
+Selection (see get_llm):
+  LLM_PROVIDER env var forces a provider; otherwise auto — Anthropic if
+  ANTHROPIC_API_KEY is set, else Ollama.
+
+Quality caveat (logged in NOTES.md): a small local model (llama3.1:8b) is
+materially weaker at strict grounding and at acting as a reliable groundedness
+judge — the exact core of this tool. Prefer Claude when a key is available.
+"""
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Type, TypeVar
+
+import requests
+from dotenv import load_dotenv
+from pydantic import BaseModel
+
+load_dotenv(Path(__file__).parent / ".env")
+
+ANTHROPIC_MODEL = "claude-opus-4-8"
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
+
+T = TypeVar("T", bound=BaseModel)
+
+
+class LLM:
+    """Common interface: free-text generation + schema-constrained JSON."""
+
+    provider: str
+    model: str
+
+    def generate(self, system: str, user: str, max_tokens: int) -> str:
+        raise NotImplementedError
+
+    def generate_json(self, user: str, schema: Type[T], max_tokens: int) -> T:
+        raise NotImplementedError
+
+
+class AnthropicLLM(LLM):
+    provider = "anthropic"
+    model = ANTHROPIC_MODEL
+
+    def __init__(self) -> None:
+        import anthropic
+        self._client = anthropic.Anthropic()
+
+    def generate(self, system: str, user: str, max_tokens: int) -> str:
+        resp = self._client.messages.create(
+            model=self.model,
+            max_tokens=max_tokens,
+            system=system,
+            messages=[{"role": "user", "content": user}],
+        )
+        return "".join(b.text for b in resp.content if b.type == "text").strip()
+
+    def generate_json(self, user: str, schema: Type[T], max_tokens: int) -> T:
+        resp = self._client.messages.parse(
+            model=self.model,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": user}],
+            output_format=schema,
+        )
+        return resp.parsed_output
+
+
+class OllamaLLM(LLM):
+    provider = "ollama"
+
+    def __init__(self) -> None:
+        self.model = OLLAMA_MODEL
+
+    def _chat(self, messages: list[dict], max_tokens: int, fmt: dict | None = None) -> str:
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": messages,
+            "options": {"temperature": 0, "num_ctx": 8192, "num_predict": max_tokens},
+        }
+        if fmt is not None:
+            payload["format"] = fmt
+        r = requests.post(f"{OLLAMA_URL}/api/chat", json=payload, timeout=300)
+        r.raise_for_status()
+        return r.json()["message"]["content"]
+
+    def generate(self, system: str, user: str, max_tokens: int) -> str:
+        return self._chat(
+            [{"role": "system", "content": system}, {"role": "user", "content": user}],
+            max_tokens,
+        ).strip()
+
+    def generate_json(self, user: str, schema: Type[T], max_tokens: int) -> T:
+        content = self._chat(
+            [{"role": "user", "content": user}],
+            max_tokens,
+            fmt=schema.model_json_schema(),
+        )
+        return schema.model_validate_json(content)
+
+
+_llm: LLM | None = None
+
+
+def get_llm() -> LLM:
+    global _llm
+    if _llm is None:
+        provider = os.getenv("LLM_PROVIDER", "").strip().lower()
+        if not provider:
+            provider = "anthropic" if os.getenv("ANTHROPIC_API_KEY") else "ollama"
+        _llm = AnthropicLLM() if provider == "anthropic" else OllamaLLM()
+    return _llm

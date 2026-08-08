@@ -15,19 +15,13 @@ judge_reasoning}.
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
-from pathlib import Path
 
-import anthropic
-from dotenv import load_dotenv
 from pydantic import BaseModel, Field
 
 from index import Index
+from llm import get_llm
 
-load_dotenv(Path(__file__).parent / ".env")
-
-MODEL = "claude-opus-4-8"  # both generation and judge; see NOTES.md
 TOP_K = 4
 
 # --- Confidence-gate thresholds (user-confirmed defaults; see NOTES.md) ---
@@ -37,17 +31,6 @@ JUDGE_THRESHOLD = 0.60      # groundedness score (0-1) from the LLM judge
 REFUSAL_TEXT = (
     "I don't have enough information in the knowledge base to answer that confidently."
 )
-
-_client: anthropic.Anthropic | None = None
-
-
-def get_client() -> anthropic.Anthropic:
-    global _client
-    if _client is None:
-        # Resolves ANTHROPIC_API_KEY from env / backend/.env
-        _client = anthropic.Anthropic()
-    return _client
-
 
 GEN_SYSTEM = """You are a QA assistant for Ada (an AI customer-service platform). \
 You answer questions about setting up and configuring an Ada AI agent's knowledge base, \
@@ -85,24 +68,16 @@ def _format_sources(chunks: list[dict]) -> str:
 
 
 def generate_answer(query: str, chunks: list[dict]) -> str:
-    client = get_client()
     user_msg = (
         f"SOURCES:\n\n{_format_sources(chunks)}\n\n"
         f"QUESTION: {query}\n\n"
         "Answer using only the SOURCES above, with inline [Title] citations."
     )
-    resp = client.messages.create(
-        model=MODEL,
-        max_tokens=1024,
-        system=GEN_SYSTEM,
-        messages=[{"role": "user", "content": user_msg}],
-    )
-    return "".join(b.text for b in resp.content if b.type == "text").strip()
+    return get_llm().generate(GEN_SYSTEM, user_msg, max_tokens=1024)
 
 
 def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
-    """SEPARATE Claude call: is THIS answer actually supported by THESE chunks?"""
-    client = get_client()
+    """SEPARATE LLM call: is THIS answer actually supported by THESE chunks?"""
     user_msg = (
         "You are a strict grounding auditor. Given a QUESTION, a candidate ANSWER, and the "
         "SOURCES that answer was supposed to be drawn from, judge whether the specific claims "
@@ -115,13 +90,7 @@ def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
         f"ANSWER: {answer}\n\n"
         f"SOURCES:\n\n{_format_sources(chunks)}"
     )
-    resp = client.messages.parse(
-        model=MODEL,
-        max_tokens=512,
-        messages=[{"role": "user", "content": user_msg}],
-        output_format=JudgeResult,
-    )
-    return resp.parsed_output
+    return get_llm().generate_json(user_msg, JudgeResult, max_tokens=512)
 
 
 def answer_query(query: str, index: Index, k: int = TOP_K) -> dict:

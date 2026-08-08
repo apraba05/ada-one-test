@@ -26,8 +26,16 @@ Logged as I build, one line per meaningful decision. Feeds the README tradeoffs 
 - Sanity check passed: "Zendesk import" → Knowledge integration chunks (0.66-0.69); "create an article" → Article creation chunks (0.76-0.81). Good matches sit well above the 0.35 floor.
 
 ## Stage 3-4 — Retrieval + Generation + Confidence Gate
-(tbd)
+- Two-stage gate: retrieval max-cosine >= 0.35 AND LLM judge groundedness >= 0.60; either fails => hard refuse (no hedged/partial answers). Retrieval-fail short-circuits before spending a generation call.
+- Judge is a SEPARATE call scoring whether the *specific* answer is grounded in the retrieved chunks (not just topic relevance), returning score + reasoning via structured output.
+
+## Provider change — local model (user-requested, mid-build)
+- User asked to run a local model instead of an Anthropic API key. This overrides the brief's "Call Claude" mandate (a direct user instruction supersedes the written spec).
+- Built `llm.py`: provider abstraction with two backends — `anthropic` (Claude, brief default) and `ollama` (local, keyless). Auto-selects: Anthropic if ANTHROPIC_API_KEY set, else Ollama. Force with `LLM_PROVIDER`. Runs keyless now AND on Claude if a key is added later — no code change.
+- Local default: `llama3.1:latest` (8B) via Ollama HTTP (already on machine). Judge uses Ollama's JSON-schema `format` for structured output (parity with Claude's messages.parse).
+- **FLAGGED QUALITY CAVEAT**: an 8B local model is weaker at strict grounding and reliable groundedness judging — the core of this tool. Watching at Stage 5/8; will surface honestly if the gate misclassifies buckets. Thresholds may need retuning for the local judge's score distribution.
 
 ## Stage 7 — UI
+- Refusal/badge visual treatment CONFIRMED by user: answered = white-fr card + green left-border; refused = graphite/pewter card, no green, "not enough information" heading; confidence trace collapsible below both.
+
 - Roobert is proprietary (no font file available) → substituting a free geometric grotesque via `next/font`; sanctioned by ADA-CX.md §8.2 ("General Sans / Söhne / Aeonik"). FLAGGED inference.
-- Confidence badge / refusal state are not in the design file → will confirm visual treatment with user at Stage 7 (per operating rule: visual choices not in design file). FLAGGED.

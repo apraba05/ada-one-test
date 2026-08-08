@@ -10,7 +10,9 @@ Logged as I build, one line per meaningful decision. Feeds the README tradeoffs 
 ## Stage 0 — Setup
 - Stack: Python backend (sentence-transformers + FastAPI required by brief), Next.js frontend. venv at `backend/.venv`.
 - Committing on `main` (fresh solo greenfield repo owned by user; no default branch to protect, so no feature branch).
-- Model choice: generation = `claude-sonnet-5` (strong grounded synthesis, reasonable cost); LLM judge = `claude-haiku-4-5-20251001` (fast/cheap, adequate for a 0-1 groundedness score). Both Anthropic per brief.
+- Model choice: **claude-opus-4-8 for BOTH generation and the LLM judge.** (Revised from an earlier Sonnet/Haiku plan.) Rationale: the claude-api skill mandates Opus 4.8 as the default unless the user names another model and says not to downgrade for cost — that's the user's decision. Trustworthy grounding is this tool's entire purpose, and the user raised no cost constraint. Note: two Opus calls per query (generate + judge) — acceptable for an interactive single-question demo.
+- Judge uses `client.messages.parse()` + a Pydantic schema (guaranteed structured `{judge_score, reasoning, supported}`); structured outputs are supported on Opus 4.8.
+- Generation runs WITHOUT extended thinking: grounded synthesis from 4 short chunks is a simple extraction task, and skipping thinking keeps the interactive latency low. The separate LLM judge is the correctness safety net. (Skill defaults to adaptive thinking "for anything remotely complicated"; this isn't.)
 
 ## Stage 1 — Ingestion
 - llms.txt is a small pointer index → real page list is in `/generative/llms.txt` (524 lines). Filtered strictly to `/docs/knowledge/` and `/docs/welcome/` prefixes.

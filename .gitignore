@@ -15,3 +15,7 @@ frontend/.next/
 frontend/out/
 frontend/node_modules/
 .DS_Store
+
+# Local verification artifacts
+*.png
+.playwright-mcp/

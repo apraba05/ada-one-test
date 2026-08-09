@@ -1,5 +1,8 @@
 # Ada Knowledge QA
 
+> For the full architecture, design rationale, performance numbers, failure modes, demo script
+> and known risks, see **[DESIGN.md](DESIGN.md)**.
+
 An internal QA tool for evaluating and configuring Ada's AI-agent knowledge base.
 Ask a question about setting up an Ada agent; the tool answers **only** from Ada's own
 documentation with inline citations — and **hard-refuses, rather than guesses**, when it

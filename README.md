@@ -1,7 +1,9 @@
 # Ada Knowledge QA
 
-> For the full architecture, design rationale, performance numbers, failure modes, demo script
-> and known risks, see **[DESIGN.md](DESIGN.md)**.
+> **[DESIGN.md](DESIGN.md)** — architecture, request lifecycle, performance numbers, failure
+> modes, validation evidence, demo script.
+> **[DECISIONS.md](DECISIONS.md)** — every architectural decision and its tradeoff, argued from
+> both a CEO and a Staff Engineer perspective, with reversibility costs.
 
 An internal QA tool for evaluating and configuring Ada's AI-agent knowledge base.
 Ask a question about setting up an Ada agent; the tool answers **only** from Ada's own

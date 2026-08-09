@@ -5,6 +5,10 @@ and has been run; planned work is confined to §12 and labelled as such.
 
 **Audience:** engineering managers and senior engineers.
 
+**Companion:** [DECISIONS.md](DECISIONS.md) argues *why* each of these choices was made and what
+it cost, through both a CEO and a Staff Engineer lens. This document covers what exists and how
+it behaves; that one covers the tradeoffs and where they'd be revisited.
+
 ---
 
 ## 1. The thesis

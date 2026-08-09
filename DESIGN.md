@@ -144,8 +144,10 @@ This is where the most consequential engineering call was made.
 
 The brief suggested ~300–500 token chunks. `all-MiniLM-L6-v2` has a hard **256 word-piece limit
 and silently truncates** anything longer — no warning, no error, just quietly discarded text
-that can never be retrieved. Measured at 300–500 tokens: **64 of 275 chunks (23%) were being
-truncated, one at 6,050 tokens.**
+that can never be retrieved. Re-measured on this corpus with the shipped chunker pointed at the
+low end of that range (300 tokens): **274 chunks, of which 159 — 58% — exceed 256 and would be
+silently truncated.** At a 400-token target it is 85%. The corpus also contains a single
+6,050-token block (a wide table), which the tokenizer flags outright.
 
 We sized chunks to the model's actual window instead: **target 210 tokens, 40-token overlap**,
 packed on paragraph boundaries. Verified result: **375 chunks, max 250 tokens, zero truncated.**

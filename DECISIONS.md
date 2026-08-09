@@ -145,8 +145,9 @@ The brief suggested 300–500 token chunks. We use ~210 with 40-token overlap.
 **Forcing question:** what happens at 300–500 with this specific embedding model?
 
 `all-MiniLM-L6-v2` caps at 256 word-pieces and **silently truncates** beyond it — no warning, no
-error. Measured at the suggested size: **64 of 275 chunks (23%) were being truncated, one at
-6,050 tokens.** That text existed in the corpus and could never be retrieved.
+error. Re-measured on this corpus with the shipped chunker pointed at the low end of that range
+(300 tokens): **274 chunks, of which 159 — 58% — exceed 256 and would be silently truncated.**
+At a 400-token target it is 85%. That text exists in the corpus and could never be retrieved.
 
 **CEO lens.** A quarter of the knowledge base would have been invisible, and the failure would
 have looked like the model being unhelpful rather than the pipeline dropping data. Worse, it

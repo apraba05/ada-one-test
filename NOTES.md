@@ -20,7 +20,8 @@ Logged as I build, one line per meaningful decision. Feeds the README tradeoffs 
 - Fetch `.md` variant of each page URL (docs serve clean markdown; no HTML scraping).
 
 ## Stage 2 — Index
-- **Chunk size deviation (deliberate)**: brief says ~300-500 tokens, but all-MiniLM-L6-v2 hard-caps at 256 word-pieces and *silently truncates* beyond. Targeting 300-500 truncated 23% of chunks (verified: 64/275 over 256, one at 6050). Sized to model window instead: TARGET=210 tokens, OVERLAP=40, packed on paragraph boundaries. Correctness > literal number (brief's own "no silent regressions" principle).
+- **Chunk size deviation (deliberate)**: brief says ~300-500 tokens, but all-MiniLM-L6-v2 hard-caps at 256 word-pieces and *silently truncates* beyond. Sized to model window instead: TARGET=210 tokens, OVERLAP=40, packed on paragraph boundaries. Correctness > literal number (brief's own "no silent regressions" principle).
+- **CORRECTION (re-measured later)**: this entry originally recorded "23% truncated (64/275 over 256)". Re-running the shipped chunker at a 300-token target reproduces the chunk count (274 vs 275) but NOT the truncation figure — the real number is **159/274 = 58%** over 256, and 85% at a 400-token target. The 23% presumably came from the pre-`_atomize` chunker. Superseded everywhere; quote 58% (at target 300) because it reproduces on demand.
 - Robust decomposition for oversized blocks (tables/long lists with no sentence boundaries): paragraph → newlines → sentences → hard token-window. Guarantees 0 chunks truncated (verified: 375 chunks, max 250 tokens, 0 over 256).
 - Embeddings L2-normalized → cosine == dot product. Persisted to cache/index.pkl with a fingerprint (model + params + kb content hash) so re-runs skip re-embed; stale KB auto-rebuilds.
 - Sanity check passed: "Zendesk import" → Knowledge integration chunks (0.66-0.69); "create an article" → Article creation chunks (0.76-0.81). Good matches sit well above the 0.35 floor.

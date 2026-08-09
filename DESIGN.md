@@ -107,7 +107,7 @@ A question through the system, with real measured timings (local 3B model, warm)
 
 | Step | What happens | Time |
 |---|---|---|
-| 1–2 | Embed the query (MiniLM, 384-dim, L2-normalised), then cosine top-4 — one `numpy` matmul over a 375×384 matrix | ~33ms |
+| 1–2 | Embed the query (MiniLM, 384-dim, L2-normalised), then cosine top-4 — one `numpy` matmul over a 375×384 matrix | ~7ms (embedding 7.19ms, search 0.013ms) |
 | 3 | **Gate 1**: `max(cosine) ≥ 0.35`? If not, return refusal immediately | — |
 | 4 | Generate: system prompt + 4 chunks + question → answer with `[Title]` citations | ~2.9s |
 | 5 | **Gate 2**: second, independent LLM call scores groundedness + `answers_question` | ~3.7s |
@@ -169,7 +169,7 @@ tuning chunk size silently evaluates against old vectors.
 Cosine top-4 over the in-memory matrix. Sources are de-duplicated by document title (keeping
 the best-scoring chunk per doc) for display, while all four chunks go to the model.
 
-**Why no vector database:** 375 × 384 floats is roughly 576 KB. A dot product over that is
+**Why no vector database:** 375 × 384 float32 is 562 KiB. A dot product over that is
 microseconds. Postgres/pgvector or Qdrant would add a service to run, a schema to migrate and a
 failure mode to handle, in exchange for identical results. The abstraction boundary is clean
 enough (`Index.search`) that swapping it later is a contained change — it becomes justified when
@@ -325,7 +325,7 @@ confident answer.
 | Quantity | Measurement |
 |---|---|
 | Local generation throughput | **29.6 tok/s** |
-| Retrieval (embed + matmul), warm | ~33ms |
+| Retrieval: query embedding / vector search | 7.19ms / **0.013ms** |
 | First search in a cold process (SentenceTransformer load) | **5.8s** |
 | Warm-to-warm model overhead | ~1.7s |
 
@@ -451,7 +451,7 @@ with an exit code, provider and model in the header, and the THIN margin line ca
 
 ## 11. Questions this room will ask
 
-**"Why no vector database?"** 375 × 384 floats ≈ 576 KB; the search is one matmul. A DB adds a
+**"Why no vector database?"** 375 × 384 float32 = 562 KiB; the search is 0.013ms. A DB adds a
 service, a schema and a failure mode for identical results. `Index.search` is the seam; it gets
 swapped when the corpus outgrows memory or needs incremental updates.
 

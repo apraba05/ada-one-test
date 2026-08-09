@@ -173,11 +173,11 @@ preference — which is why it's part of the cache fingerprint.
 375 chunks × 384 dimensions, held in memory, persisted as a fingerprinted pickle.
 
 **CEO lens.** A database here would be infrastructure we run, monitor and pay for, to get results
-identical to a matmul over 576 KB. It's the kind of choice that looks rigorous in a diagram and
+identical to a matmul over 562 KiB. It's the kind of choice that looks rigorous in a diagram and
 costs real time in practice. The interesting engineering in this project is the gate; spending
 the complexity budget on storage would be spending it in the wrong place.
 
-**Staff lens.** Search is one dot product over a 375×384 matrix — ~33ms warm, dominated by
+**Staff lens.** Search is one dot product over a 375×384 matrix — **0.013ms**, utterly dominated by
 embedding the query, not by the search. Adding pgvector or Qdrant buys index structures that
 matter at 10⁶ vectors and cost latency at 10². What we *did* build is the part that's expensive
 to retrofit: `Index.search` is a clean seam, and the cache is keyed by a **SHA-256 of the model
@@ -188,7 +188,19 @@ bug where you tune chunking and unknowingly evaluate against old vectors.
 **What it costs.** No incremental updates, no persistence beyond a local file, single process.
 
 **Revisit when:** the corpus outgrows memory, needs incremental updates, or must be shared across
-processes. None are true at 15 documents.
+processes. None are true at 15 documents — and note that all three are *operational* triggers, not
+speed ones. Measured linear-scan scaling on this machine:
+
+| Vectors | Scan time | Memory |
+|---|---|---|
+| 375 (today) | 0.05 ms | 0.5 MiB |
+| 10,000 | 0.21 ms | 15 MiB |
+| 100,000 | 3.46 ms | 147 MiB |
+| 1,000,000 | 32.1 ms | 1.4 GiB |
+
+A brute-force scan is still faster than one LLM token at a million vectors. Approximate-nearest-
+neighbour indexes buy latency we do not need; a database earns its place by owning durability and
+incremental writes, which is a different argument and the one we would actually make.
 
 ---
 
@@ -305,7 +317,7 @@ streaming becomes compatible rather than merely tempting.
 
 The complaint was "too slow." The instinct was to cache, parallelise, or shrink the prompt.
 
-**Measured first:** local generation runs at **29.6 tok/s**; retrieval is 33ms; warm-to-warm model
+**Measured first:** local generation runs at **29.6 tok/s**; retrieval is ~7ms; warm-to-warm model
 overhead is 1.7s. Conclusion: response time is **almost entirely tokens generated**. Retrieval was
 never worth touching, and the two LLM calls can't be parallelised because the judge needs the
 answer.

@@ -30,6 +30,13 @@ TOP_K = 4
 RETRIEVAL_THRESHOLD = 0.35  # max cosine over retrieved chunks (all-MiniLM-L6-v2 "clearly relevant" band)
 JUDGE_THRESHOLD = 0.60      # groundedness score (0-1) from the LLM judge
 
+# Latency is dominated by tokens generated (~30 tok/s on a local 8B), and these are caps on
+# runaway output, not targets — a typical answer lands near 160 and the judge near 80.
+GEN_MAX_TOKENS = 400
+JUDGE_MAX_TOKENS = 256
+
+EVIDENCE_CHARS = 400  # per-chunk excerpt shown in the UI evidence panel
+
 REFUSAL_TEXT = (
     "I don't have enough information in the knowledge base to answer that confidently."
 )
@@ -44,6 +51,9 @@ STRICT GROUNDING RULES — these override everything else:
 not present in the SOURCES. If the SOURCES do not contain the answer, say so plainly.
 - Cite the source doc title inline in square brackets after each claim, e.g. [Knowledge integration].
 - Be direct and concise. Do not hedge, speculate, or pad. No preamble like "Based on the sources".
+- Keep the answer under 120 words. Lead with the direct answer. Use short numbered steps only \
+if the SOURCES actually describe steps. Every generated token is latency, so do not restate \
+the question or add a closing summary.
 - If the SOURCES only partially cover the question, answer only the covered part and state \
 what is not covered."""
 
@@ -56,7 +66,7 @@ class JudgeResult(BaseModel):
         "drawn from the SOURCES. False if the answer says the information is not in the sources, "
         "punts, or only gives adjacent/general info without answering the question."
     )
-    reasoning: str = Field(description="One or two sentences explaining the score and the answers_question decision")
+    reasoning: str = Field(description="ONE short sentence explaining the score and the answers_question decision")
 
 
 @dataclass
@@ -90,7 +100,7 @@ def generate_answer(query: str, chunks: list[dict]) -> str:
         "Do NOT reproduce the '###' headers or the raw source text, and do NOT repeat these "
         "instructions — write the answer in your own words with inline [Title] citations."
     )
-    return get_llm().generate(GEN_SYSTEM, user_msg, max_tokens=1024)
+    return get_llm().generate(GEN_SYSTEM, user_msg, max_tokens=GEN_MAX_TOKENS)
 
 
 def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
@@ -118,7 +128,7 @@ def judge_answer(query: str, answer: str, chunks: list[dict]) -> JudgeResult:
         f"ANSWER: {answer}\n\n"
         f"SOURCES:\n\n{_format_sources(chunks)}"
     )
-    return get_llm().generate_json(user_msg, JudgeResult, max_tokens=512)
+    return get_llm().generate_json(user_msg, JudgeResult, max_tokens=JUDGE_MAX_TOKENS)
 
 
 def answer_query(query: str, index: Index, k: int = TOP_K) -> dict:
@@ -134,12 +144,27 @@ def answer_query(query: str, index: Index, k: int = TOP_K) -> dict:
             sources[c["title"]] = Source(title=c["title"], url=c["source_url"], score=c["score"])
     source_list = [s.__dict__ for s in sorted(sources.values(), key=lambda s: -s.score)]
 
+    # What the retriever actually looked at, so a refusal can be audited rather than trusted.
+    evidence = [
+        {
+            "title": c["title"],
+            "url": c["source_url"],
+            "score": c["score"],
+            "text": c["text"][:EVIDENCE_CHARS] + ("…" if len(c["text"]) > EVIDENCE_CHARS else ""),
+        }
+        for c in chunks[:3]
+    ]
+
     # Gate stage 1: retrieval. If nothing is relevant, refuse without spending a generation call.
     if retrieval_score < RETRIEVAL_THRESHOLD:
         return {
             "answer": REFUSAL_TEXT,
             "refused": True,
             "sources": source_list,
+            "evidence": evidence,
+            # Deliberately empty: nothing cleared the relevance floor, so naming the
+            # nearest docs would imply a connection the scores don't support.
+            "coverage": [],
             "retrieval_score": retrieval_score,
             "judge_score": None,
             "answers_question": None,
@@ -152,10 +177,18 @@ def answer_query(query: str, index: Index, k: int = TOP_K) -> dict:
     # Gate stage 2: LLM judge. Refuse if the answer is weakly grounded OR it doesn't actually
     # answer the question (a grounded "not covered in the sources" is a refusal, not an answer).
     refused = judge.judge_score < JUDGE_THRESHOLD or not judge.answers_question
+
+    # A judge-gate refusal means the retrieved docs WERE topically close but didn't contain the
+    # answer — so naming them is a real coverage signal ("pricing isn't here, but X and Y are"),
+    # not a guess. Retrieval-gate refusals above deliberately get no such hint.
+    coverage = [s["title"] for s in source_list[:3]] if refused else []
+
     return {
         "answer": REFUSAL_TEXT if refused else answer,
         "refused": refused,
         "sources": source_list,
+        "evidence": evidence,
+        "coverage": coverage,
         "retrieval_score": retrieval_score,
         "judge_score": judge.judge_score,
         "answers_question": judge.answers_question,

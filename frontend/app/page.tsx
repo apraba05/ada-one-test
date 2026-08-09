@@ -1,14 +1,17 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 
 type Source = { title: string; url: string; score: number };
+type Evidence = Source & { text: string };
 type AskResponse = {
   answer: string;
   refused: boolean;
   sources: Source[];
+  evidence: Evidence[];
+  coverage: string[];
   retrieval_score: number;
   judge_score: number | null;
   answers_question: boolean | null;
@@ -20,6 +23,16 @@ const EXAMPLES = [
   "Can I connect my Zendesk help center?",
   "How do I create a knowledge article in Ada?",
   "What are best practices for setting up knowledge?",
+];
+
+// The pipeline is one POST, so these cutoffs are client-side estimates of a run's typical
+// shape (retrieval is instant, generation dominates, judging follows) — enough to show real
+// progress instead of a spinner. Streaming the answer itself is not an option here: the
+// confidence gate can still refuse after generation, so no token may be shown before it passes.
+const STAGES = [
+  { label: "Searching the knowledge base", at: 0 },
+  { label: "Writing a grounded answer", at: 1.5 },
+  { label: "Checking the answer against the sources", at: 8 },
 ];
 
 // Long right-arrow inside the signature charcoal circle (ADA-CX.md §5.1).
@@ -83,6 +96,15 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AskResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [elapsed, setElapsed] = useState(0);
+
+  useEffect(() => {
+    if (!loading) return;
+    setElapsed(0);
+    const started = Date.now();
+    const id = setInterval(() => setElapsed((Date.now() - started) / 1000), 100);
+    return () => clearInterval(id);
+  }, [loading]);
 
   async function ask(q: string) {
     const query = q.trim();
@@ -184,14 +206,39 @@ export default function Home() {
           </div>
         )}
 
-        {/* Loading state */}
+        {/* Loading state — show the pipeline advancing rather than an opaque spinner */}
         {loading && (
-          <div className="mt-8 animate-pulse rounded-2xl border-l-[6px] border-grey bg-white-fr p-6 shadow-[0_1px_3px_rgba(10,11,12,0.06)]">
-            <div className="mb-3 h-3 w-40 rounded-full bg-grey" />
-            <div className="mb-2 h-3 w-full rounded-full bg-grey" />
-            <div className="mb-2 h-3 w-11/12 rounded-full bg-grey" />
-            <div className="h-3 w-3/4 rounded-full bg-grey" />
-            <p className="mt-4 text-[14px] text-pewter">Searching the knowledge base and checking confidence…</p>
+          <div className="mt-8 rounded-2xl border-l-[6px] border-grey bg-white-fr p-6 shadow-[0_1px_3px_rgba(10,11,12,0.06)]">
+            <div className="mb-4 flex items-baseline justify-between">
+              <span className="text-[13px] font-medium uppercase tracking-wide text-pewter">Working</span>
+              <span className="tabular-nums text-[13px] text-pewter">{elapsed.toFixed(1)}s</span>
+            </div>
+            <ol className="space-y-2.5">
+              {STAGES.map((stage, i) => {
+                const next = STAGES[i + 1];
+                const done = next ? elapsed >= next.at : false;
+                const active = elapsed >= stage.at && !done;
+                return (
+                  <li key={stage.label} className="flex items-center gap-3 text-[15px]">
+                    <span
+                      className={`flex size-5 shrink-0 items-center justify-center rounded-full text-[11px] ${
+                        done
+                          ? "bg-green text-white-fr"
+                          : active
+                            ? "bg-charcoal text-white-fr"
+                            : "bg-grey text-pewter"
+                      }`}
+                    >
+                      {done ? "✓" : i + 1}
+                    </span>
+                    <span className={done ? "text-pewter" : active ? "text-charcoal" : "text-pewter/60"}>
+                      {stage.label}
+                      {active && <span className="ml-1 animate-pulse">…</span>}
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
           </div>
         )}
 
@@ -214,6 +261,20 @@ export default function Home() {
                   <span className="text-[13px] font-medium uppercase tracking-wide text-graphite">Not enough information</span>
                 </div>
                 <p className="text-[17px] leading-[1.55] text-charcoal">{result.answer}</p>
+                {result.coverage.length > 0 && (
+                  <div className="mt-4 border-t border-grey pt-4">
+                    <p className="mb-2 text-[13px] text-pewter">
+                      Closest topics the knowledge base does cover
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      {result.coverage.map((t) => (
+                        <span key={t} className="rounded-full bg-white-fr px-3 py-1.5 text-[13px] text-charcoal/80">
+                          {t}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               // Answer — confident: white card, green left border.
@@ -244,6 +305,39 @@ export default function Home() {
                   </div>
                 )}
               </div>
+            )}
+
+            {/* Evidence — the raw retrieved text, so a claim (or a refusal) can be checked here */}
+            {result.evidence.length > 0 && (
+              <details className="group mt-3 rounded-2xl bg-white-fr p-4 shadow-[0_1px_3px_rgba(10,11,12,0.06)]">
+                <summary className="flex cursor-pointer list-none items-center justify-between text-[14px] text-charcoal/80">
+                  <span className="flex items-center gap-2">
+                    <span className="text-pewter transition-transform group-open:rotate-90">▸</span>
+                    Evidence — what the retriever actually read
+                  </span>
+                  <span className="text-[13px] text-pewter">{result.evidence.length} passages</span>
+                </summary>
+                <div className="mt-4 space-y-3">
+                  {result.evidence.map((e, i) => (
+                    <div key={`${e.url}-${i}`} className="rounded-xl bg-off-white p-3">
+                      <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                        <a
+                          href={e.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="text-[13px] font-medium text-charcoal hover:underline"
+                        >
+                          {e.title} ↗
+                        </a>
+                        <span className="shrink-0 tabular-nums text-[12px] text-pewter">
+                          cosine {e.score.toFixed(2)}
+                        </span>
+                      </div>
+                      <p className="whitespace-pre-wrap text-[13px] leading-[1.5] text-charcoal/70">{e.text}</p>
+                    </div>
+                  ))}
+                </div>
+              </details>
             )}
 
             {/* Confidence trace — collapsible, secondary (ADA-CX.md-derived) */}

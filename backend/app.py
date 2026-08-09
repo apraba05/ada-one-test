@@ -10,6 +10,7 @@ Run: uvicorn app:app --reload --port 8000
 from __future__ import annotations
 
 import logging
+import threading
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -40,7 +41,22 @@ _index: Index | None = None
 def _startup() -> None:
     global _index
     _index = Index.load()
-    logger.info("Index loaded (%d chunks); LLM provider=%s", len(_index.chunks), get_llm().provider)
+    llm = get_llm()
+    logger.info("Index loaded (%d chunks); LLM provider=%s model=%s", len(_index.chunks), llm.provider, llm.model)
+
+    # Warm in the background so the server accepts requests immediately; a question that
+    # arrives mid-warm just waits for the same load it would have triggered itself.
+    def _warm() -> None:
+        try:
+            # The SentenceTransformer is lazy-loaded on first search, so without this the
+            # embedding model load also lands on the first question.
+            _index.search("warm", k=1)
+            llm.warm()
+            logger.info("LLM + embedder warm (%s)", llm.model)
+        except Exception:
+            logger.warning("LLM warmup failed; first question will pay the load cost", exc_info=True)
+
+    threading.Thread(target=_warm, daemon=True).start()
 
 
 class AskRequest(BaseModel):
@@ -62,10 +78,17 @@ class Source(BaseModel):
     score: float
 
 
+class Evidence(Source):
+    """A retrieved chunk excerpt — lets a reader audit the answer (or the refusal) directly."""
+    text: str
+
+
 class AskResponse(BaseModel):
     answer: str
     refused: bool
     sources: list[Source]
+    evidence: list[Evidence]
+    coverage: list[str]
     retrieval_score: float
     judge_score: float | None
     answers_question: bool | None

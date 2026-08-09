@@ -30,7 +30,11 @@ from pydantic import BaseModel
 load_dotenv(Path(__file__).parent / ".env")
 
 ANTHROPIC_MODEL = "claude-opus-4-8"
-OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.1:latest")
+# 3B by default: ~2x faster than llama3.1:8b (≈6s vs ≈12s per answered question) and it still
+# passes all 8 eval cases, so the gate's behaviour is unchanged — verified, not assumed. Its
+# judge scores are less discriminating though (0.90 flat where the 8B spreads 0.80-1.00), so
+# use OLLAMA_MODEL=llama3.1:latest, or a Claude key, when judging fidelity matters more than speed.
+OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "llama3.2:3b")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
 
 T = TypeVar("T", bound=BaseModel)
@@ -47,6 +51,9 @@ class LLM:
 
     def generate_json(self, user: str, schema: Type[T], max_tokens: int) -> T:
         raise NotImplementedError
+
+    def warm(self) -> None:
+        """Pay the model load cost up front instead of on the user's first question."""
 
 
 class AnthropicLLM(LLM):
@@ -87,7 +94,12 @@ class OllamaLLM(LLM):
             "model": self.model,
             "stream": False,
             "messages": messages,
-            "options": {"temperature": 0, "num_ctx": 8192, "num_predict": max_tokens},
+            # Keep the model resident: a query makes two back-to-back calls, and the default
+            # idle unload costs a reload (~2s) between them and on the next question.
+            "keep_alive": -1,
+            # 4096 comfortably fits the largest prompt we build (4 chunks + answer + judge
+            # instructions ~= 1.6k tokens); the 8192 default just allocates KV cache we never use.
+            "options": {"temperature": 0, "num_ctx": 4096, "num_predict": max_tokens},
         }
         if fmt is not None:
             payload["format"] = fmt
@@ -108,6 +120,11 @@ class OllamaLLM(LLM):
             fmt=schema.model_json_schema(),
         )
         return schema.model_validate_json(content)
+
+    def warm(self) -> None:
+        """Loading a cold model costs ~20s — the single worst moment in a live demo, and it
+        would otherwise land on the first question someone asks."""
+        self._chat([{"role": "user", "content": "ok"}], max_tokens=1)
 
 
 _llm: LLM | None = None

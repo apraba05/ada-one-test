@@ -22,11 +22,13 @@ docs.ada.cx  ──(Stage 1: ingest .md)──▶  backend/kb/*.md   (15 docs: k
                                               4. GATE 2 — LLM judge: groundedness ≥ 0.60
                                                  AND answers_question ? else refuse
                                               ▼
-                          {answer, refused, sources, retrieval_score,
-                           judge_score, answers_question, judge_reasoning}
+                          {answer, refused, sources, evidence, coverage,
+                           retrieval_score, judge_score, answers_question,
+                           judge_reasoning}
                                               │
                           Next.js UI (Stage 7) — Ada CX design system:
-                          green "grounded answer" card / graphite "refusal" card /
+                          green "grounded answer" card / graphite "refusal" card
+                          (+ what the KB does cover) / collapsible evidence panel /
                           collapsible confidence trace
 ```
 
@@ -57,15 +59,28 @@ after any change to retrieval, prompts, or thresholds — see `backend/eval_set.
 interface with two backends:
 
 - **`anthropic`** — Claude (`claude-opus-4-8`) via the official SDK. The brief's default.
-- **`ollama`** — a local model (`llama3.1:8b` by default), no API key required.
+- **`ollama`** — a local model (`llama3.2:3b` by default), no API key required.
 
 Selection: `LLM_PROVIDER` env var forces one; otherwise **auto** — Anthropic if
 `ANTHROPIC_API_KEY` is set, else Ollama. The tool runs keyless on local Ollama today and
 switches to Claude with zero code changes the moment a key is present.
 
-> **Quality note:** an 8B local model is measurably weaker at strict grounding and at acting
+> **Quality note:** a small local model is measurably weaker at strict grounding and at acting
 > as a reliable groundedness judge — the exact core of this tool. For production evaluation,
 > run with a Claude key. See NOTES.md.
+
+### Latency
+
+A local model generates at roughly 30 tokens/second, so answer length *is* response time.
+Three changes took a question from ~20s to ~6s: defaulting to a 3B model (verified to still
+pass all 8 eval cases), capping answers at ~120 words, and warming both the LLM and the
+embedding model at startup so the first question doesn't pay the load cost.
+
+`OLLAMA_MODEL=llama3.1:latest` trades ~2x latency for a more discriminating judge.
+
+Note that the answer is **not** streamed, deliberately: the judge can still refuse after
+generation, so showing tokens as they arrive would leak an answer the gate is about to reject.
+The UI shows real pipeline progress instead.
 
 ## Running it
 
@@ -97,6 +112,7 @@ Deliberately **not** built (and not gold-plated around):
 - No persistent vector DB — in-memory + a local `cache/index.pkl` file only.
 - No hybrid search / reranking — pure vector cosine similarity.
 - No multi-turn conversation — single question in, single answer out.
+- No streaming — incompatible with a gate that can refuse after generation (see Latency).
 - No retry/backoff on LLM calls.
 - No CI — `backend/eval.py` is run by hand, and it asserts bucket classification
   (answer vs. refuse) only, not answer-quality scoring.

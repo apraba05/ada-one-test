@@ -38,6 +38,8 @@ from rag import answer_query, JUDGE_THRESHOLD, RETRIEVAL_THRESHOLD
 ANSWER = "answer"
 REFUSE = "refuse"
 
+THIN_MARGIN = 0.10  # a case this close to a threshold is one retrieval change from reclassifying
+
 
 @dataclass(frozen=True)
 class Case:
@@ -84,6 +86,31 @@ class Outcome:
         answers = "—" if aq is None else ("yes" if aq else "no")
         return f"{self.result['retrieval_score']:.2f} / {judge} / {answers}"
 
+    @property
+    def margin(self) -> float:
+        """Signed distance from the nearest threshold this case's outcome depended on.
+
+        Passing 8/8 says nothing about how close any case came to flipping. A Bucket B question
+        that clears the retrieval floor by 0.08 is one retrieval change away from reclassifying,
+        so the margin is the number that actually tells you whether the gate is robust.
+        """
+        deltas = [self.result["retrieval_score"] - RETRIEVAL_THRESHOLD]
+        if self.result["judge_score"] is not None:
+            deltas.append(self.result["judge_score"] - JUDGE_THRESHOLD)
+        # answers_question is boolean, so it has no margin — when it is what forced the refusal,
+        # the numeric gates are not what protected us, and that is worth seeing.
+        return min(deltas, key=abs)
+
+    @property
+    def decided_by(self) -> str:
+        if self.result["retrieval_score"] < RETRIEVAL_THRESHOLD:
+            return "retrieval"
+        if self.result["answers_question"] is False:
+            return "answers_question"
+        if self.result["judge_score"] is not None and self.result["judge_score"] < JUDGE_THRESHOLD:
+            return "judge"
+        return "both gates passed"
+
 
 def run_case(case: Case, index: Index) -> Outcome:
     start = time.perf_counter()
@@ -96,10 +123,11 @@ def print_report(outcomes: list[Outcome], verbose: bool) -> None:
     width = max(len(o.case.question) for o in outcomes)
     for i, o in enumerate(outcomes, 1):
         mark = "PASS" if o.passed else "FAIL"
+        thin = " THIN" if abs(o.margin) < THIN_MARGIN else ""
         print(
             f"[{mark}] {i}. ({o.case.bucket}) {o.case.question:<{width}}  "
             f"expected={label[o.case.expected]:<6} actual={label[o.actual]:<6} "
-            f"{o.trace()}  {o.seconds:.1f}s"
+            f"{o.trace()}  margin={o.margin:+.2f}{thin}  {o.seconds:.1f}s"
         )
         if verbose:
             print(f"       answer: {o.result['answer']}")
@@ -150,7 +178,19 @@ def main() -> int:
 
     failures = [o for o in outcomes if not o.passed]
     passed = len(outcomes) - len(failures)
-    print(f"\n{passed}/{len(outcomes)} passed in {elapsed:.1f}s")
+    slowest = max(outcomes, key=lambda o: o.seconds)
+    answered = [o for o in outcomes if o.result["judge_score"] is not None]
+    mean_answered = sum(o.seconds for o in answered) / len(answered) if answered else 0.0
+    print(
+        f"\n{passed}/{len(outcomes)} passed in {elapsed:.1f}s "
+        f"(mean {mean_answered:.1f}s per generated answer, slowest {slowest.seconds:.1f}s)"
+    )
+
+    thin = sorted((o for o in outcomes if abs(o.margin) < THIN_MARGIN), key=lambda o: abs(o.margin))
+    if thin:
+        print(f"\nTHIN MARGINS (< {THIN_MARGIN}) — closest to reclassifying:")
+        for o in thin:
+            print(f"  {o.margin:+.2f}  ({o.case.bucket}) {o.case.question}  [decided by: {o.decided_by}]")
     if failures:
         print("\nMISCLASSIFIED:")
         for o in failures:
